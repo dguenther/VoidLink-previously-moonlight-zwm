@@ -73,6 +73,16 @@ static float VLClamp01(float value)
     return MIN(1.0f, MAX(0.0f, value));
 }
 
+static float AxisValueForElement(NSDictionary* dict, ControllerElement key) {
+    GCControllerElement* e = dict[@(key)];
+    return [e isKindOfClass:[GCControllerAxisInput class]] ? ((GCControllerAxisInput*)e).value : 0.0f;
+}
+
+static float ButtonValueForElement(NSDictionary* dict, ControllerElement key) {
+    GCControllerElement* e = dict[@(key)];
+    return [e isKindOfClass:[GCControllerButtonInput class]] ? ((GCControllerButtonInput*)e).value : 0.0f;
+}
+
 // Positions are a step index over a full-scale span. The two families differ only
 // in how many steps they divide the arm into, so they share one conversion.
 #define VL_BYTE_STEP_COUNT 256
@@ -1349,11 +1359,24 @@ static void ApplyAdaptiveTriggerEffect(GCDualSenseAdaptiveTrigger* trigger,
     if (controller != NULL) {
         controller.controllerPausedHandler = NULL;
         
-        if (controller.extendedGamepad != NULL) {
+        if ([ControllerSupport isSupportedGamepad:controller]) {
             // Re-enable system gestures on the gamepad buttons now
             if (@available(iOS 14.0, tvOS 14.0, *)) {
                 for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
                     element.preferredSystemGestureState = GCSystemGestureStateEnabled;
+                }
+                if (controller.extendedGamepad == nil) {
+                    for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
+                        if ([element isKindOfClass:[GCControllerButtonInput class]]) {
+                            ((GCControllerButtonInput*)element).valueChangedHandler = nil;
+                        }
+                        else if ([element isKindOfClass:[GCControllerDirectionPad class]]) {
+                            ((GCControllerDirectionPad*)element).valueChangedHandler = nil;
+                        }
+                        else if ([element isKindOfClass:[GCControllerAxisInput class]]) {
+                            ((GCControllerAxisInput*)element).valueChangedHandler = nil;
+                        }
+                    }
                 }
             }
             
@@ -1475,42 +1498,81 @@ static void ApplyAdaptiveTriggerEffect(GCDualSenseAdaptiveTrigger* trigger,
         supportedButtonFlags |= PLAY_FLAG;
         
         // Detect buttons present in the GCExtendedGamepad profile
-        if (controller.extendedGamepad.dpad) {
-            supportedButtonFlags |= UP_FLAG | DOWN_FLAG | LEFT_FLAG | RIGHT_FLAG;
+        GCExtendedGamepad* ext = controller.extendedGamepad;
+        if (ext) {
+            if (ext.dpad) {
+                supportedButtonFlags |= UP_FLAG | DOWN_FLAG | LEFT_FLAG | RIGHT_FLAG;
+            }
+            if (ext.leftShoulder) {
+                supportedButtonFlags |= LB_FLAG;
+            }
+            if (ext.rightShoulder) {
+                supportedButtonFlags |= RB_FLAG;
+            }
+            if (@available(iOS 13.0, tvOS 13.0, *)) {
+                if (ext.buttonOptions) {
+                    supportedButtonFlags |= BACK_FLAG;
+                }
+            }
+            if (@available(iOS 14.0, tvOS 14.0, *)) {
+                if (ext.buttonHome) {
+                    supportedButtonFlags |= SPECIAL_FLAG;
+                }
+            }
+            if (ext.buttonA) {
+                supportedButtonFlags |= A_FLAG;
+            }
+            if (ext.buttonB) {
+                supportedButtonFlags |= B_FLAG;
+            }
+            if (ext.buttonX) {
+                supportedButtonFlags |= X_FLAG;
+            }
+            if (ext.buttonY) {
+                supportedButtonFlags |= Y_FLAG;
+            }
+            if (@available(iOS 12.1, tvOS 12.1, *)) {
+                if (ext.leftThumbstickButton) {
+                    supportedButtonFlags |= LS_CLK_FLAG;
+                }
+                if (ext.rightThumbstickButton) {
+                    supportedButtonFlags |= RS_CLK_FLAG;
+                }
+            }
         }
-        if (controller.extendedGamepad.leftShoulder) {
-            supportedButtonFlags |= LB_FLAG;
-        }
-        if (controller.extendedGamepad.rightShoulder) {
-            supportedButtonFlags |= RB_FLAG;
-        }
-        if (@available(iOS 13.0, tvOS 13.0, *)) {
-            if (controller.extendedGamepad.buttonOptions) {
+        else if (@available(iOS 14.0, tvOS 14.0, *)) {
+            GCPhysicalInputProfile* profile = controller.physicalInputProfile;
+            if (profile.dpads[GCInputDirectionPad]) {
+                supportedButtonFlags |= UP_FLAG | DOWN_FLAG | LEFT_FLAG | RIGHT_FLAG;
+            }
+            if (profile.buttons[GCInputLeftShoulder]) {
+                supportedButtonFlags |= LB_FLAG;
+            }
+            if (profile.buttons[GCInputRightShoulder]) {
+                supportedButtonFlags |= RB_FLAG;
+            }
+            if (profile.buttons[GCInputButtonOptions]) {
                 supportedButtonFlags |= BACK_FLAG;
             }
-        }
-        if (@available(iOS 14.0, tvOS 14.0, *)) {
-            if (controller.extendedGamepad.buttonHome) {
+            if (profile.buttons[GCInputButtonHome]) {
                 supportedButtonFlags |= SPECIAL_FLAG;
             }
-        }
-        if (controller.extendedGamepad.buttonA) {
-            supportedButtonFlags |= A_FLAG;
-        }
-        if (controller.extendedGamepad.buttonB) {
-            supportedButtonFlags |= B_FLAG;
-        }
-        if (controller.extendedGamepad.buttonX) {
-            supportedButtonFlags |= X_FLAG;
-        }
-        if (controller.extendedGamepad.buttonY) {
-            supportedButtonFlags |= Y_FLAG;
-        }
-        if (@available(iOS 12.1, tvOS 12.1, *)) {
-            if (controller.extendedGamepad.leftThumbstickButton) {
+            if (profile.buttons[GCInputButtonA]) {
+                supportedButtonFlags |= A_FLAG;
+            }
+            if (profile.buttons[GCInputButtonB]) {
+                supportedButtonFlags |= B_FLAG;
+            }
+            if (profile.buttons[GCInputButtonX]) {
+                supportedButtonFlags |= X_FLAG;
+            }
+            if (profile.buttons[GCInputButtonY]) {
+                supportedButtonFlags |= Y_FLAG;
+            }
+            if (profile.buttons[GCInputLeftThumbstickButton]) {
                 supportedButtonFlags |= LS_CLK_FLAG;
             }
-            if (controller.extendedGamepad.rightThumbstickButton) {
+            if (profile.buttons[GCInputRightThumbstickButton]) {
                 supportedButtonFlags |= RS_CLK_FLAG;
             }
         }
@@ -1776,9 +1838,9 @@ double rc_expo(double x, double expo) {
     __block ControllerElement radialMenuButton = ControllerElementNull;
     __block bool controllerNavigatorEnabled = false;
     
-    [ControllerUtil listenWithController:controller swapABXY:self->_swapABXYButtons handler:^(NSDictionary * elementDict, GCExtendedGamepad * gamepad, GCControllerElement * element) {
+    [ControllerUtil listenWithController:controller swapABXY:self->_swapABXYButtons handler:^(NSDictionary * elementDict, GCController * gcController, GCControllerElement * element) {
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-            VoidController* voidController = [self->_voidControllers objectForKey:[NSNumber numberWithInteger:gamepad.controller.playerIndex]];
+            VoidController* voidController = [self->_voidControllers objectForKey:[NSNumber numberWithInteger:gcController.playerIndex]];
             short leftStickX, leftStickY;
             short rightStickX, rightStickY;
             unsigned char leftTrigger, rightTrigger;
@@ -1835,11 +1897,11 @@ double rc_expo(double x, double expo) {
                 }
             }
             
-            CGFloat leftStickXRaw = gamepad.leftThumbstick.xAxis.value * self->stickMaxOffset;
-            CGFloat leftStickYRaw = gamepad.leftThumbstick.yAxis.value * self->stickMaxOffset;
+            CGFloat leftStickXRaw = AxisValueForElement(elementDict, ControllerElementLeftStickX) * self->stickMaxOffset;
+            CGFloat leftStickYRaw = AxisValueForElement(elementDict, ControllerElementLeftStickY) * self->stickMaxOffset;
             
-            CGFloat rightStickXRaw = gamepad.rightThumbstick.xAxis.value * self->stickMaxOffset;
-            CGFloat rightStickYRaw = gamepad.rightThumbstick.yAxis.value * self->stickMaxOffset;
+            CGFloat rightStickXRaw = AxisValueForElement(elementDict, ControllerElementRightStickX) * self->stickMaxOffset;
+            CGFloat rightStickYRaw = AxisValueForElement(elementDict, ControllerElementRightStickY) * self->stickMaxOffset;
             
             CGVector leftStickOffset = [ControllerUtil compensatedWithOffsetVector:CGVectorMake(leftStickXRaw, leftStickYRaw) minOffset:self->_leftStickMinOffset circulate:false];
             
@@ -1874,21 +1936,21 @@ double rc_expo(double x, double expo) {
                ) [self->motionHandler mixPhysicalLeftStickAndGyroInputWithX:leftStickX y:leftStickY];
             else [self updateLeftStick: voidController.playerIndex==0?self->_oscController:voidController x:leftStickX y:leftStickY];
             
-            leftTrigger = gamepad.leftTrigger.value * 0xFF;
-            rightTrigger = gamepad.rightTrigger.value * 0xFF;
+            leftTrigger = ButtonValueForElement(elementDict, ControllerElementLeftTrigger) * 0xFF;
+            rightTrigger = ButtonValueForElement(elementDict, ControllerElementRightTrigger) * 0xFF;
             [self updateTriggers:voidController left:leftTrigger right:rightTrigger];
             
             [self updateFinished:voidController];
             
             if (@available(iOS 14.0, *)) {
-                if (gamepad.controller.physicalInputProfile.dpads[GCInputDualShockTouchpadOne]) {
+                if (gcController.physicalInputProfile.dpads[GCInputDualShockTouchpadOne]) {
                     [self handleControllerTouchpad:voidController
-                                             touch:gamepad.controller.physicalInputProfile.dpads[GCInputDualShockTouchpadOne]
+                                             touch:gcController.physicalInputProfile.dpads[GCInputDualShockTouchpadOne]
                                              index:0];
                 }
-                if (gamepad.controller.physicalInputProfile.dpads[GCInputDualShockTouchpadTwo]) {
+                if (gcController.physicalInputProfile.dpads[GCInputDualShockTouchpadTwo]) {
                     [self handleControllerTouchpad:voidController
-                                             touch:gamepad.controller.physicalInputProfile.dpads[GCInputDualShockTouchpadTwo]
+                                             touch:gcController.physicalInputProfile.dpads[GCInputDualShockTouchpadTwo]
                                              index:1];
                 }
             }
@@ -1932,6 +1994,12 @@ double rc_expo(double x, double expo) {
                 useLegacyPausedHandler = NO;
             }
         }
+        if (@available(iOS 14.0, tvOS 14.0, *)) {
+            if (controller.extendedGamepad == nil &&
+                controller.physicalInputProfile.buttons[GCInputButtonOptions] != nil) {
+                useLegacyPausedHandler = NO;
+            }
+        }
         
         if (useLegacyPausedHandler) {
             controller.controllerPausedHandler = ^(GCController *controller) {
@@ -1951,7 +2019,7 @@ double rc_expo(double x, double expo) {
             };
         }
         
-        if (controller.extendedGamepad != NULL) {
+        if ([ControllerSupport isSupportedGamepad:controller]) {
             // Disable system gestures on the gamepad to avoid interfering
             // with in-game controller actions
             
@@ -2190,6 +2258,16 @@ double rc_expo(double x, double expo) {
             // Disable special button emulation since we have a physical special button
             voidController.supportedEmulationFlags &= ~EMULATING_SPECIAL;
         }
+        if (controller.extendedGamepad == nil &&
+            controller.physicalInputProfile.buttons[GCInputButtonOptions] != nil) {
+            // Disable select button emulation since we have a physical select button
+            voidController.supportedEmulationFlags &= ~EMULATING_SELECT;
+        }
+        if (controller.extendedGamepad == nil &&
+            controller.physicalInputProfile.buttons[GCInputButtonHome] != nil) {
+            // Disable special button emulation since we have a physical special button
+            voidController.supportedEmulationFlags &= ~EMULATING_SPECIAL;
+        }
     }
     
     // Prepare controller haptics for use
@@ -2243,7 +2321,7 @@ double rc_expo(double x, double expo) {
 }
 
 +(bool) isSupportedGamepad:(GCController*) controller {
-    return controller.extendedGamepad != nil;
+    return [ControllerUtil isUsableGamepad:controller];
 }
 
 #pragma clang diagnostic pop

@@ -1488,14 +1488,14 @@ private final class ControllerNavigationSetupCoordinator {
             }
         }
         ControllerUtil.stopListeningPrimaryController(stopListenToRadialMenuButton: true)
-        ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, gamepad, _ in
+        ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, controller, _ in
             DispatchQueue.main.async {
-                self?.consume(elementDict: elementDict, gamepad: gamepad)
+                self?.consume(elementDict: elementDict, controller: controller)
             }
         }
     }
 
-    private func consume(elementDict: NSDictionary, gamepad: GCExtendedGamepad) {
+    private func consume(elementDict: NSDictionary, controller: GCController) {
         guard phase != .finished,
               let settings = dataManager.retrieveSettings() else { return }
 
@@ -1559,8 +1559,11 @@ private final class ControllerNavigationSetupCoordinator {
             updateMessage(mouseStickMessage)
 
         case .mouseStick:
-            let leftOffset = hypotf(gamepad.leftThumbstick.xAxis.value, gamepad.leftThumbstick.yAxis.value)
-            let rightOffset = hypotf(gamepad.rightThumbstick.xAxis.value, gamepad.rightThumbstick.yAxis.value)
+            func axisValue(_ element: ControllerElement) -> Float {
+                (elementDict[NSNumber(value: element.rawValue)] as? GCControllerAxisInput)?.value ?? 0
+            }
+            let leftOffset = hypotf(axisValue(.leftStickX), axisValue(.leftStickY))
+            let rightOffset = hypotf(axisValue(.rightStickX), axisValue(.rightStickY))
             guard leftOffset > 0.1 || rightOffset > 0.1 else { return }
             let stick: ControllerElement = leftOffset > rightOffset ? .leftStick : .rightStick
             settings.controllerMouseStick = NSNumber(value: stick.rawValue)
@@ -4766,7 +4769,7 @@ final class SettingsSession: NSObject, ObservableObject {
                 let confirmAction = AlertControllerUtil.alertController.actions.first
                 self.capturedGyroSwitchController = controller
                 ControllerUtil.stopListeningPrimaryController(stopListenToRadialMenuButton: true)
-                ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, gamepad, _ in
+                ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, controller, _ in
                     var capturedRawValue: Int32?
                     for case let key as NSNumber in elementDict.allKeys {
                         guard let button = elementDict[key] as? GCControllerButtonInput, button.isPressed else { continue }
@@ -4780,7 +4783,14 @@ final class SettingsSession: NSObject, ObservableObject {
                         let disableTapped = currentNavControls?.contains(ControllerElement(rawValue: capturedRawValue) ?? .null) == true
                         switchButtonCaptured = !disableTapped
                         self.capturedGyroSwitchController = controller
-                        gamepad.valueChangedHandler = nil
+                        controller.extendedGamepad?.valueChangedHandler = nil
+                        if #available(iOS 14.0, *), controller.extendedGamepad == nil {
+                            for element in controller.physicalInputProfile.allElements {
+                                (element as? GCControllerButtonInput)?.valueChangedHandler = nil
+                                (element as? GCControllerDirectionPad)?.valueChangedHandler = nil
+                                (element as? GCControllerAxisInput)?.valueChangedHandler = nil
+                            }
+                        }
                         let manager = OSCProfilesManager.sharedManager(CGRect.zero)
                         let profile = manager.getSelectedProfile()
                         if isToggle {

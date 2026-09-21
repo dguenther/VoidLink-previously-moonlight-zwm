@@ -509,7 +509,7 @@ final class ControllerNavigator: NSObject {
     }
 
     @objc static func start() {
-        guard let controller = ControllerUtil.primaryGCController, controller.extendedGamepad != nil else { return }
+        guard let controller = ControllerUtil.primaryGCController, ControllerUtil.isUsableGamepad(controller) else { return }
         restartListening()
         GamepadNavigationIllustrationHud.updateHud()
     }

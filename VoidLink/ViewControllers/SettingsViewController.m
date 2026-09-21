@@ -27,6 +27,28 @@
 #if TARGET_OS_TV
 #endif
 
+static float SVCAxisValueForElement(NSDictionary* dict, ControllerElement key) {
+    GCControllerElement* e = dict[@(key)];
+    return [e isKindOfClass:[GCControllerAxisInput class]] ? ((GCControllerAxisInput*)e).value : 0.0f;
+}
+
+static void SVCClearControllerValueHandlers(GCController* controller) {
+    controller.extendedGamepad.valueChangedHandler = nil;
+    if (@available(iOS 14.0, tvOS 14.0, *)) {
+        if (controller.extendedGamepad != nil) return;
+        for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
+            if ([element isKindOfClass:[GCControllerButtonInput class]]) {
+                ((GCControllerButtonInput*)element).valueChangedHandler = nil;
+            }
+            else if ([element isKindOfClass:[GCControllerDirectionPad class]]) {
+                ((GCControllerDirectionPad*)element).valueChangedHandler = nil;
+            }
+            else if ([element isKindOfClass:[GCControllerAxisInput class]]) {
+                ((GCControllerAxisInput*)element).valueChangedHandler = nil;
+            }
+        }
+    }
+}
 
 #if TARGET_OS_TV
 
@@ -3556,7 +3578,7 @@ BOOL isCustomResolution(int resolutionSelected) {
             if(self->capturedController){
                 __weak typeof(self) weakSelf = self;
                                 
-                [ControllerUtil listenWithController:self->capturedController swapABXY:false handler:^(NSDictionary * elementDict, GCExtendedGamepad * gamepad, GCControllerElement * element) {
+                [ControllerUtil listenWithController:self->capturedController swapABXY:false handler:^(NSDictionary * elementDict, GCController * gcController, GCControllerElement * element) {
                     __strong typeof(weakSelf) self = weakSelf;
                     if (!self) return;
                     for(NSNumber* elementEnumInstance in elementDict){
@@ -3574,7 +3596,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             for(UIAlertAction* action in AlertControllerUtil.alertController.actions) {
                                 action.enabled = false;
                             }
-                            gamepad.valueChangedHandler = nil;
+                            SVCClearControllerValueHandlers(gcController);
                             if(confirmAction) [confirmAction setValue:[LocalizationHelper localizedStringForKey:@"OK"] forKey:@"title"];
                             [self->oscProfileMan replaceSelectedProfileWith:self->oscProfile overwriteDefault:true];
                             
@@ -3671,9 +3693,12 @@ BOOL isCustomResolution(int resolutionSelected) {
             
             [ControllerUtil stopListeningPrimaryControllerWithStopListenToRadialMenuButton:true];
 
-            [ControllerUtil listenWithController:self->capturedController swapABXY:false handler:^(NSDictionary * elementDict, GCExtendedGamepad * gamepad, GCControllerElement * element) {
+            [ControllerUtil listenWithController:self->capturedController swapABXY:false handler:^(NSDictionary * elementDict, GCController * gcController, GCControllerElement * element) {
                 __strong typeof(weakSelf) self = weakSelf;
                 if (!self) return;
+                
+                GCControllerElement* leftTriggerElement = elementDict[@(ControllerElementLeftTrigger)];
+                GCControllerElement* rightTriggerElement = elementDict[@(ControllerElementRightTrigger)];
                 
                 if(!localRadialMenuButtonCaptured){
                     for(NSNumber* elementEnumInstance in elementDict){
@@ -3687,7 +3712,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             ControllerElementPosition position = [ControllerUtil positionFor:(ControllerElement)currentSettings.localRadialMenuButton.intValue];
                             metRadialButtonWithUndefinedPosition = position == ControllerElementPositionUndefined || position == ControllerElementPositionMiddle;
                             localRadialMenuButtonCaptured = true;
-                            if(button == gamepad.leftTrigger || button == gamepad.rightTrigger) previousTriggerPressed = true;
+                            if(button == leftTriggerElement || button == rightTriggerElement) previousTriggerPressed = true;
                             if(metRadialButtonWithUndefinedPosition) {
                                 AlertControllerUtil.alertController.message = [LocalizationHelper localizedStringForKey:@"Which side of the controller is this button on?"];
                                 if (@available(iOS 13.0, *)) [ControllerNavigator updateHudForCustomRadialMenuButtonPosition];
@@ -3697,7 +3722,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             
                             return;
                         }
-                        else if(button == gamepad.leftTrigger || button == gamepad.rightTrigger) previousTriggerPressed = false;
+                        else if(button == leftTriggerElement || button == rightTriggerElement) previousTriggerPressed = false;
                     }
                 }
                 
@@ -3739,7 +3764,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                         GCControllerElement * element = (GCControllerButtonInput *)elementDict[elementEnumInstance];
                         if (![element isKindOfClass:[GCControllerButtonInput class]]) continue;
                         GCControllerButtonInput * button = (GCControllerButtonInput *)element;
-                        if(button == gamepad.leftTrigger || button == gamepad.rightTrigger) {
+                        if(button == leftTriggerElement || button == rightTriggerElement) {
                             if(button.isPressed == previousTriggerPressed) continue;
                         }
                         if(button.isPressed){
@@ -3793,8 +3818,8 @@ BOOL isCustomResolution(int resolutionSelected) {
                                 
                 
                 if(!stickCaptured && streamingRadialMenuButtonCaptured && !metRadialButtonWithUndefinedPosition){
-                    float leftStickOffset = hypotf(gamepad.leftThumbstick.xAxis.value, gamepad.leftThumbstick.yAxis.value);
-                    float rightStickOffset = hypotf(gamepad.rightThumbstick.xAxis.value, gamepad.rightThumbstick.yAxis.value);
+                    float leftStickOffset = hypotf(SVCAxisValueForElement(elementDict, ControllerElementLeftStickX), SVCAxisValueForElement(elementDict, ControllerElementLeftStickY));
+                    float rightStickOffset = hypotf(SVCAxisValueForElement(elementDict, ControllerElementRightStickX), SVCAxisValueForElement(elementDict, ControllerElementRightStickY));
                     if(leftStickOffset>0.1||rightStickOffset>0.1){
                         ControllerElement stick = leftStickOffset>rightStickOffset ? ControllerElementLeftStick : ControllerElementRightStick;
                         currentSettings.controllerMouseStick = @(stick);
@@ -3848,7 +3873,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             }
                             
                             AlertControllerUtil.alertController.message = [LocalizationHelper localizedStringForKey:@"Finished"];
-                            gamepad.valueChangedHandler = nil;
+                            SVCClearControllerValueHandlers(gcController);
                             // deprecated:
                             UIAlertAction* cancelAction = AlertControllerUtil.alertController.actions.firstObject;
                             if(cancelAction) [cancelAction setValue:[LocalizationHelper localizedStringForKey:@"OK"] forKey:@"title"];
