@@ -1439,7 +1439,7 @@ private final class ControllerNavigationSetupCoordinator {
             finish(completed: false)
             return
         }
-        guard let controller = GCController.controllers().first(where: { $0.extendedGamepad != nil }) else {
+        guard let controller = ControllerUtil.firstUsableController else {
             presentWaitingForController(in: presenter)
             return
         }
@@ -1488,14 +1488,14 @@ private final class ControllerNavigationSetupCoordinator {
             }
         }
         ControllerUtil.stopListeningPrimaryController(stopListenToRadialMenuButton: true)
-        ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, controller, _ in
+        ControllerUtil.listen(controller: controller, swapABXY: false) { [weak self] elementDict, _, _ in
             DispatchQueue.main.async {
-                self?.consume(elementDict: elementDict, controller: controller)
+                self?.consume(elementDict: elementDict)
             }
         }
     }
 
-    private func consume(elementDict: NSDictionary, controller: GCController) {
+    private func consume(elementDict: NSDictionary) {
         guard phase != .finished,
               let settings = dataManager.retrieveSettings() else { return }
 
@@ -1646,7 +1646,7 @@ private final class ControllerNavigationSetupCoordinator {
     }
 
     private func cleanupControllerListener() {
-        controller?.extendedGamepad?.valueChangedHandler = nil
+        ControllerUtil.stopListening(controller: controller)
     }
 
     private func finish(completed: Bool) {
@@ -4725,7 +4725,7 @@ final class SettingsSession: NSObject, ObservableObject {
 
     private func presentGyroSwitchCapture(for mode: ControllerGyroSwitchMode) {
         guard let presenter = presentingController else { return }
-        guard let controller = GCController.controllers().first(where: { $0.extendedGamepad != nil }) else {
+        guard let controller = ControllerUtil.firstUsableController else {
             let persistedMode = Int(OSCProfilesManager.sharedManager(CGRect.zero).getSelectedProfile().controllerGyroSwitchMode)
             AlertControllerUtil.showAlert(
                 in: presenter,
@@ -4783,14 +4783,7 @@ final class SettingsSession: NSObject, ObservableObject {
                         let disableTapped = currentNavControls?.contains(ControllerElement(rawValue: capturedRawValue) ?? .null) == true
                         switchButtonCaptured = !disableTapped
                         self.capturedGyroSwitchController = controller
-                        controller.extendedGamepad?.valueChangedHandler = nil
-                        if #available(iOS 14.0, *), controller.extendedGamepad == nil {
-                            for element in controller.physicalInputProfile.allElements {
-                                (element as? GCControllerButtonInput)?.valueChangedHandler = nil
-                                (element as? GCControllerDirectionPad)?.valueChangedHandler = nil
-                                (element as? GCControllerAxisInput)?.valueChangedHandler = nil
-                            }
-                        }
+                        ControllerUtil.stopListening(controller: controller)
                         let manager = OSCProfilesManager.sharedManager(CGRect.zero)
                         let profile = manager.getSelectedProfile()
                         if isToggle {
@@ -4828,7 +4821,7 @@ final class SettingsSession: NSObject, ObservableObject {
     }
 
     private func stopGyroSwitchCapture() {
-        capturedGyroSwitchController?.extendedGamepad?.valueChangedHandler = nil
+        ControllerUtil.stopListening(controller: capturedGyroSwitchController)
         capturedGyroSwitchController = nil
         ControllerNavigator.restartListening()
     }

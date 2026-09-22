@@ -1365,22 +1365,9 @@ static void ApplyAdaptiveTriggerEffect(GCDualSenseAdaptiveTrigger* trigger,
                 for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
                     element.preferredSystemGestureState = GCSystemGestureStateEnabled;
                 }
-                if (controller.extendedGamepad == nil) {
-                    for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
-                        if ([element isKindOfClass:[GCControllerButtonInput class]]) {
-                            ((GCControllerButtonInput*)element).valueChangedHandler = nil;
-                        }
-                        else if ([element isKindOfClass:[GCControllerDirectionPad class]]) {
-                            ((GCControllerDirectionPad*)element).valueChangedHandler = nil;
-                        }
-                        else if ([element isKindOfClass:[GCControllerAxisInput class]]) {
-                            ((GCControllerAxisInput*)element).valueChangedHandler = nil;
-                        }
-                    }
-                }
             }
             
-            controller.extendedGamepad.valueChangedHandler = NULL;
+            [ControllerUtil stopListeningToController:controller];
         }
     }
 }

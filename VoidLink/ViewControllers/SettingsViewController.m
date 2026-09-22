@@ -32,24 +32,6 @@ static float SVCAxisValueForElement(NSDictionary* dict, ControllerElement key) {
     return [e isKindOfClass:[GCControllerAxisInput class]] ? ((GCControllerAxisInput*)e).value : 0.0f;
 }
 
-static void SVCClearControllerValueHandlers(GCController* controller) {
-    controller.extendedGamepad.valueChangedHandler = nil;
-    if (@available(iOS 14.0, tvOS 14.0, *)) {
-        if (controller.extendedGamepad != nil) return;
-        for (GCControllerElement* element in controller.physicalInputProfile.allElements) {
-            if ([element isKindOfClass:[GCControllerButtonInput class]]) {
-                ((GCControllerButtonInput*)element).valueChangedHandler = nil;
-            }
-            else if ([element isKindOfClass:[GCControllerDirectionPad class]]) {
-                ((GCControllerDirectionPad*)element).valueChangedHandler = nil;
-            }
-            else if ([element isKindOfClass:[GCControllerAxisInput class]]) {
-                ((GCControllerAxisInput*)element).valueChangedHandler = nil;
-            }
-        }
-    }
-}
-
 #if TARGET_OS_TV
 
 @interface SettingsViewController () <UIScrollViewDelegate>
@@ -3574,7 +3556,7 @@ BOOL isCustomResolution(int resolutionSelected) {
             
             UIAlertAction* confirmAction = AlertControllerUtil.alertController.actions.firstObject;
 
-            self->capturedController = [GCController controllers].firstObject;
+            self->capturedController = ControllerUtil.firstUsableController;
             if(self->capturedController){
                 __weak typeof(self) weakSelf = self;
                                 
@@ -3596,7 +3578,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             for(UIAlertAction* action in AlertControllerUtil.alertController.actions) {
                                 action.enabled = false;
                             }
-                            SVCClearControllerValueHandlers(gcController);
+                            [ControllerUtil stopListeningToController:gcController];
                             if(confirmAction) [confirmAction setValue:[LocalizationHelper localizedStringForKey:@"OK"] forKey:@"title"];
                             [self->oscProfileMan replaceSelectedProfileWith:self->oscProfile overwriteDefault:true];
                             
@@ -3653,7 +3635,7 @@ BOOL isCustomResolution(int resolutionSelected) {
             
             [self setHidden:sender.selectedSegmentIndex==ControllerGyroSwitchDisabled forStack:self.reverseHoldButtonStack];
             
-            if(self->capturedController && self->capturedController.extendedGamepad) self->capturedController.extendedGamepad.valueChangedHandler = nil;
+            [ControllerUtil stopListeningToController:self->capturedController];
         }];
     }
 }
@@ -3681,7 +3663,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                           buttonTitle:@""
                             countdown:0
                                action:^{
-        self->capturedController = [GCController controllers].firstObject;
+        self->capturedController = ControllerUtil.firstUsableController;
         if(self->capturedController){
             __weak typeof(self) weakSelf = self;
             
@@ -3873,7 +3855,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                             }
                             
                             AlertControllerUtil.alertController.message = [LocalizationHelper localizedStringForKey:@"Finished"];
-                            SVCClearControllerValueHandlers(gcController);
+                            [ControllerUtil stopListeningToController:gcController];
                             // deprecated:
                             UIAlertAction* cancelAction = AlertControllerUtil.alertController.actions.firstObject;
                             if(cancelAction) [cancelAction setValue:[LocalizationHelper localizedStringForKey:@"OK"] forKey:@"title"];
@@ -3915,7 +3897,7 @@ BOOL isCustomResolution(int resolutionSelected) {
                 [self.controllerNavigationSwitch setOn:rightButtonCaptured];
                 [self.controllerNavigationSwitch sendActionsForControlEvents:UIControlEventValueChanged];
             }
-            if(self->capturedController && self->capturedController.extendedGamepad) self->capturedController.extendedGamepad.valueChangedHandler = nil;
+            [ControllerUtil stopListeningToController:self->capturedController];
         }
     }];
 }

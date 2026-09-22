@@ -1139,6 +1139,8 @@ import UIKit
                             _ controller: GCController,
                             _ element: GCControllerElement) -> Void
     ) {
+        stopListening(controller: controller)
+
         // 内部生成 map
         var tempMap: [NSNumber: GCControllerElement] = [:]
         let swiftMap = buildMapping(for: controller, swapABXY: swapABXY)
@@ -1170,21 +1172,50 @@ import UIKit
                 }
 #endif
             }
-            for profileElement in controller.physicalInputProfile.allElements {
-                switch profileElement {
+            setPhysicalInputHandler(controller.physicalInputProfile, handler: elementChanged)
+        }
+    }
+
+    /// Removes the stream or settings-capture listener without removing button navigation handlers.
+    @objc(stopListeningToController:)
+    static func stopListening(controller: GCController?) {
+        guard let controller else { return }
+        if let gamepad = controller.extendedGamepad {
+            gamepad.valueChangedHandler = nil
+        } else if #available(iOS 14.0, tvOS 14.0, *) {
+            setPhysicalInputHandler(controller.physicalInputProfile, handler: nil)
+        }
+    }
+
+    @available(iOS 14.0, tvOS 14.0, *)
+    private static func setPhysicalInputHandler(
+        _ profile: GCPhysicalInputProfile,
+        handler: ((GCControllerElement) -> Void)?
+    ) {
+        if #available(iOS 16.0, tvOS 16.0, *) {
+            profile.valueDidChangeHandler = handler.map { callback in
+                { _, element in callback(element) }
+            }
+        } else {
+            // Before iOS/tvOS 16, physical profiles only expose element callbacks.
+            for element in profile.allElements {
+                switch element {
                 case let button as GCControllerButtonInput:
-                    button.valueChangedHandler = { element, _, _ in elementChanged(element) }
+                    button.valueChangedHandler = handler.map { callback in
+                        { element, _, _ in callback(element) }
+                    }
                 case let dpad as GCControllerDirectionPad:
-                    dpad.valueChangedHandler = { element, _, _ in elementChanged(element) }
+                    dpad.valueChangedHandler = handler.map { callback in
+                        { element, _, _ in callback(element) }
+                    }
                 case let axis as GCControllerAxisInput:
-                    axis.valueChangedHandler = { element, _ in elementChanged(element) }
+                    axis.valueChangedHandler = handler.map { callback in
+                        { element, _ in callback(element) }
+                    }
                 default:
                     break
                 }
             }
-        }
-        else {
-            return
         }
     }
     
@@ -1247,30 +1278,6 @@ import UIKit
                 if let home = pad.buttonHome {
                     result[.special] = home
                 }
-                
-                if let controller = pad.controller {
-                    let profile = controller.physicalInputProfile
-                    if let paddle1 = profile.buttons[GCInputXboxPaddleOne] {
-                        result[.paddle1] = paddle1
-                    }
-                    if let paddle2 = profile.buttons[GCInputXboxPaddleTwo] {
-                        result[.paddle2] = paddle2
-                    }
-                    if let paddle3 = profile.buttons[GCInputXboxPaddleThree] {
-                        result[.paddle3] = paddle3
-                    }
-                    if let paddle4 = profile.buttons[GCInputXboxPaddleFour] {
-                        result[.paddle4] = paddle4
-                    }
-                    if let touchpadBtn = profile.buttons[GCInputDualShockTouchpadButton] {
-                        result[.touchpadButton] = touchpadBtn
-                    }
-                    if #available(iOS 15.0, tvOS 15.0, *) {
-                        if let share = profile.buttons[GCInputButtonShare] {
-                            result[.misc] = share
-                        }
-                    }
-                }
             }
         }
         else if #available(iOS 14.0, tvOS 14.0, *) {
@@ -1325,6 +1332,19 @@ import UIKit
             if let button = profile.buttons[GCInputButtonOptions] { result[.select] = button }
             if let button = profile.buttons[GCInputButtonHome] { result[.special] = button }
         }
+
+        // These inputs may exist on either an extended gamepad or a physical-only profile.
+        if #available(iOS 14.0, tvOS 14.0, *) {
+            let profile = controller.physicalInputProfile
+            result[.paddle1] = profile.buttons[GCInputXboxPaddleOne]
+            result[.paddle2] = profile.buttons[GCInputXboxPaddleTwo]
+            result[.paddle3] = profile.buttons[GCInputXboxPaddleThree]
+            result[.paddle4] = profile.buttons[GCInputXboxPaddleFour]
+            result[.touchpadButton] = profile.buttons[GCInputDualShockTouchpadButton]
+            if #available(iOS 15.0, tvOS 15.0, *) {
+                result[.misc] = profile.buttons[GCInputButtonShare]
+            }
+        }
         
         if controller === primaryGCController {ControllerUtil.primaryControllerElementMap = result}
         
@@ -1338,6 +1358,8 @@ import UIKit
     @objc static func isUsableGamepad(_ controller: GCController) -> Bool {
         if controller.extendedGamepad != nil { return true }
         if #available(iOS 14.0, tvOS 14.0, *) {
+            // Siri Remote exposes a micro profile even before the remote-category constants exist.
+            if controller.microGamepad != nil { return false }
             if #available(iOS 15.0, tvOS 15.0, *) {
                 let remoteCategories = [
                     GCProductCategorySiriRemote1stGen,
@@ -1354,8 +1376,8 @@ import UIKit
         return false
     }
     
-    @objc static func usesPhysicalInputProfileFallback(_ controller: GCController) -> Bool {
-        return controller.extendedGamepad == nil && isUsableGamepad(controller)
+    @objc static var firstUsableController: GCController? {
+        GCController.controllers().first(where: isUsableGamepad)
     }
     
     @objc static var swapABXY:Bool = false
@@ -1383,7 +1405,7 @@ import UIKit
     @objc static func installControllerObserversIfNeeded() {
         guard connectObserver == nil, disconnectObserver == nil else { return }
         
-        if GCController.controllers().first(where: { isUsableGamepad($0) }) != nil {
+        if firstUsableController != nil {
             preparePrimaryController()
         }
         
@@ -1428,7 +1450,7 @@ import UIKit
     }
 
     private static func preparePrimaryController() {
-        guard let controller = GCController.controllers().first(where: { isUsableGamepad($0) }) else {
+        guard let controller = firstUsableController else {
             stopListeningPrimaryController()
             ControllerUtil.primaryGCController = nil
             if #available(iOS 13.0, *) {
@@ -1471,6 +1493,7 @@ import UIKit
     }
 
     @objc static func stopListeningPrimaryController(stopListenToRadialMenuButton: Bool = false) {
+        stopListening(controller: primaryGCController)
         guard let primaryControllerButtonMap = primaryControllerElementMap else { return }
         for gcElement in primaryControllerButtonMap.values {
             if let gcButton = gcElement as? GCControllerButtonInput {
@@ -1487,16 +1510,6 @@ import UIKit
             }
         }
         primaryControllerAxisStates.removeAll()
-        primaryGCController?.extendedGamepad?.valueChangedHandler = nil
-        if #available(iOS 14.0, tvOS 14.0, *),
-           let primaryController = primaryGCController,
-           usesPhysicalInputProfileFallback(primaryController) {
-            for element in primaryController.physicalInputProfile.allElements {
-                (element as? GCControllerButtonInput)?.valueChangedHandler = nil
-                (element as? GCControllerDirectionPad)?.valueChangedHandler = nil
-                (element as? GCControllerAxisInput)?.valueChangedHandler = nil
-            }
-        }
     }
     
     @objc static func listenPrimaryControllerButton(_ button: ControllerElement, ignoreSwapABXY: Bool = true, handler: @escaping (_ pressed: Bool) -> Void){
